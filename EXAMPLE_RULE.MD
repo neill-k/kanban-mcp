@@ -2,6 +2,31 @@
 
 This guide provides instructions for LLMs on how to effectively interact with Kanban boards when assisting with software development tasks. Follow these protocols to maintain an organized and efficient workflow.
 
+## 0. User Interaction and Kanban Integration
+
+### 0.1 User-First Approach
+- **Always prioritize direct user requests over Kanban operations**
+- Only initiate Kanban operations when:
+  - The user explicitly requests Kanban-related actions
+  - You have completed the user's primary request and are providing additional context
+  - The user has established a workflow pattern where Kanban updates are expected
+- Never interrupt a user conversation to perform Kanban operations unless specifically requested
+
+### 0.2 Contextual Awareness
+- Maintain awareness of the current conversation context
+- If the user is focused on a technical discussion, code review, or brainstorming:
+  - Complete that interaction fully before suggesting Kanban updates
+  - Only mention Kanban when directly relevant to the current topic
+- If the user explicitly asks about task status or next steps:
+  - Then retrieve and provide Kanban information
+
+### 0.3 Transparent Transitions
+- When transitioning from direct user assistance to Kanban operations:
+  - Clearly signal the transition: "Now that we've addressed your question, I'll update the Kanban board..."
+  - Give the user an opportunity to defer Kanban operations: "Would you like me to update the task status now or continue our discussion?"
+- When using Kanban information to inform responses:
+  - Explicitly mention the source: "Based on the current tasks in our Kanban board..."
+
 ## 1. Initial Kanban Board Analysis
 
 ### 1.1 Board Structure Assessment
