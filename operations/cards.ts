@@ -8,7 +8,13 @@
 
 import { z } from "zod";
 import { plankaRequest } from "../common/utils.js";
-import { PlankaCardSchema, PlankaStopwatchSchema } from "../common/types.js";
+import {
+    PlankaCardSchema,
+    PlankaStopwatchSchema,
+    PlankaCardMembershipSchema,
+    PlankaCardMembership,
+    AssignMemberToCardOptions,
+} from "../common/types.js";
 
 // Schema definitions
 /**
@@ -17,12 +23,18 @@ import { PlankaCardSchema, PlankaStopwatchSchema } from "../common/types.js";
  * @property {string} name - The name of the card
  * @property {string} [description] - The description of the card
  * @property {number} [position] - The position of the card in the list (default: 65535)
+ * @property {string} [dueDate] - The due date for the card (ISO 8601 format)
  */
 export const CreateCardSchema = z.object({
     listId: z.string().describe("List ID"),
     name: z.string().describe("Card name"),
     description: z.string().optional().describe("Card description"),
     position: z.number().optional().describe("Card position (default: 65535)"),
+    dueDate: z
+        .string()
+        .datetime({ offset: true })
+        .optional()
+        .describe("Card due date (ISO 8601 format)"),
 });
 
 /**
@@ -47,7 +59,7 @@ export const GetCardSchema = z.object({
  * @property {string} [name] - The new name for the card
  * @property {string} [description] - The new description for the card
  * @property {number} [position] - The new position for the card
- * @property {string} [dueDate] - The due date for the card (ISO format)
+ * @property {string | null} [dueDate] - The due date for the card (ISO format) or null to clear
  * @property {boolean} [isCompleted] - Whether the card is completed
  */
 export const UpdateCardSchema = z.object({
@@ -55,7 +67,12 @@ export const UpdateCardSchema = z.object({
     name: z.string().optional().describe("Card name"),
     description: z.string().optional().describe("Card description"),
     position: z.number().optional().describe("Card position"),
-    dueDate: z.string().optional().describe("Card due date (ISO format)"),
+    dueDate: z
+        .string()
+        .datetime({ offset: true })
+        .nullable()
+        .optional()
+        .describe("Card due date (ISO 8601 format) or null to clear"),
     isCompleted: z.boolean().optional().describe(
         "Whether the card is completed",
     ),
@@ -122,6 +139,12 @@ const CardResponseSchema = z.object({
     included: z.record(z.any()).optional(),
 });
 
+// Card Membership Response schema (based on PlankaCardMembershipSchema for a single item)
+const CardMembershipResponseSchema = z.object({
+    item: PlankaCardMembershipSchema,
+    included: z.record(z.any()).optional(),
+});
+
 // Function implementations
 /**
  * Creates a new card in a list
@@ -131,20 +154,26 @@ const CardResponseSchema = z.object({
  * @param {string} options.name - The name of the card
  * @param {string} [options.description] - The description of the card
  * @param {number} [options.position] - The position of the card in the list (default: 65535)
+ * @param {string} [options.dueDate] - The due date for the card (ISO 8601 format)
  * @returns {Promise<object>} The created card
  * @throws {Error} If the card creation fails
  */
 export async function createCard(options: CreateCardOptions) {
     try {
+        const body: Record<string, unknown> = {
+            name: options.name,
+            description: options.description,
+            position: options.position,
+        };
+        if (options.dueDate) {
+            body.dueDate = options.dueDate;
+        }
+
         const response = await plankaRequest(
             `/api/lists/${options.listId}/cards`,
             {
                 method: "POST",
-                body: {
-                    name: options.name,
-                    description: options.description,
-                    position: options.position,
-                },
+                body,
             },
         );
         const parsedResponse = CardResponseSchema.parse(response);
@@ -262,19 +291,42 @@ export async function getCard(id: string) {
  * Updates a card's properties
  *
  * @param {string} id - The ID of the card to update
- * @param {Partial<Omit<CreateCardOptions, "listId">>} options - The properties to update
+ * @param {Partial<Omit<UpdateCardOptions, "id">>} options - The properties to update
  * @returns {Promise<object>} The updated card
  */
 export async function updateCard(
     id: string,
-    options: Partial<Omit<CreateCardOptions, "listId">>,
+    options: Partial<Omit<UpdateCardOptions, "id">>,
 ) {
-    const response = await plankaRequest(`/api/cards/${id}`, {
-        method: "PATCH",
-        body: options,
-    });
-    const parsedResponse = CardResponseSchema.parse(response);
-    return parsedResponse.item;
+    try {
+        // Construct the body object carefully to handle undefined vs. null for dueDate
+        const body: Record<string, unknown> = {};
+        if (options.name !== undefined) body.name = options.name;
+        if (options.description !== undefined) body.description = options.description;
+        if (options.position !== undefined) body.position = options.position;
+        if (options.isCompleted !== undefined) body.isCompleted = options.isCompleted;
+
+        // Special handling for dueDate:
+        // - If options.dueDate is a string, send it.
+        // - If options.dueDate is null, send null (to clear it).
+        // - If options.dueDate is undefined, don't send the key.
+        if (options.dueDate !== undefined) {
+            body.dueDate = options.dueDate;
+        }
+
+        const response = await plankaRequest(`/api/cards/${id}`, {
+            method: "PATCH",
+            body,
+        });
+        const parsedResponse = CardResponseSchema.parse(response);
+        return parsedResponse.item;
+    } catch (error) {
+        throw new Error(
+            `Failed to update card: ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+        );
+    }
 }
 
 /**
@@ -556,4 +608,38 @@ function formatDuration(seconds: number): string {
     result += `${remainingSeconds}s`;
 
     return result.trim();
+}
+
+/**
+ * Assigns a member to a specific card.
+ *
+ * @param {AssignMemberToCardOptions} options - Options for assigning the member.
+ * @param {string} options.cardId - The ID of the card.
+ * @param {string} options.userId - The ID of the user to assign.
+ * @returns {Promise<PlankaCardMembership>} The card membership object.
+ * @throws {Error} If the assignment fails.
+ */
+export async function assignMemberToCard(
+    options: AssignMemberToCardOptions
+): Promise<PlankaCardMembership> {
+    try {
+        const response = await plankaRequest(
+            `/api/cards/${options.cardId}/memberships`,
+            {
+                method: "POST",
+                body: { userId: options.userId },
+            }
+        );
+        const parsedResponse = CardMembershipResponseSchema.parse(response);
+        return parsedResponse.item;
+    } catch (error) {
+        console.error(
+            `Failed to assign member to card ${options.cardId}. UserID: ${options.userId}, Error: ${error}`
+        );
+        throw new Error(
+            `Failed to assign member to card: ${
+                error instanceof Error ? error.message : String(error)
+            }`
+        );
+    }
 }

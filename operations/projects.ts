@@ -24,10 +24,10 @@ export const CreateProjectSchema = z.object({
  * @property {number} [perPage] - Number of results per page (default: 30, max: 100)
  */
 export const GetProjectsSchema = z.object({
-    page: z.number().optional().describe(
+    page: z.number().int().positive().optional().default(1).describe(
         "Page number for pagination (default: 1)",
     ),
-    perPage: z.number().optional().describe(
+    perPage: z.number().int().positive().max(100).optional().default(30).describe(
         "Number of results per page (default: 30, max: 100)",
     ),
 });

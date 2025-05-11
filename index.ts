@@ -61,8 +61,9 @@ server.tool(
     page: z
       .number()
       .optional()
+      .default(1)
       .describe("The page number for pagination (1-indexed)"),
-    perPage: z.number().optional().describe("The number of items per page"),
+    perPage: z.number().optional().default(10).describe("The number of items per page"),
     boardId: z
       .string()
       .optional()
@@ -84,10 +85,9 @@ server.tool(
     switch (args.action) {
       case "get_projects":
         if (!args.page || !args.perPage)
-          throw new Error(
-            "page and perPage are required for get_projects action"
-          );
-        result = await projects.getProjects(args.page, args.perPage);
+          result = await projects.getProjects()
+          else
+          result = await projects.getProjects(args.page, args.perPage)
         break;
 
       case "get_project":
@@ -243,51 +243,37 @@ server.tool(
         "delete",
         "create_with_tasks",
         "get_details",
+        "assign_member",
       ])
       .describe("The action to perform"),
-    id: z.string().optional().describe("The ID of the card"),
+    id: z.string().optional().describe("The ID of the card (used for get_one, update, move, duplicate, delete, assign_member, get_details)"),
     listId: z.string().optional().describe("The ID of the list"),
     boardId: z
       .string()
       .optional()
       .describe("The ID of the board (if moving between boards)"),
-    projectId: z
-      .string()
-      .optional()
-      .describe("The ID of the project (if moving between projects)"),
     name: z.string().optional().describe("The name of the card"),
     description: z.string().optional().describe("The description of the card"),
     position: z.number().optional().describe("The position of the card"),
-    dueDate: z
-      .string()
-      .optional()
-      .describe("The due date for the card (ISO format)"),
-    isCompleted: z
-      .boolean()
-      .optional()
-      .describe("Whether the card is completed"),
-    tasks: z
-      .array(z.string())
-      .optional()
-      .describe(
-        "Array of task descriptions to create for create_with_tasks action"
-      ),
-    comment: z
-      .string()
-      .optional()
-      .describe("Optional comment to add to the card"),
-    cardId: z
-      .string()
-      .optional()
-      .describe("The ID of the card to get details for"),
+    dueDate: z.string().optional().describe("The due date for the card (ISO format)"),
+    isCompleted: z.boolean().optional().describe("Whether the card is completed"),
+    tasks: z.array(z.object({
+        name: z.string(),
+        comment: z.string().optional(),
+    })).optional().describe("Array of task objects (name, optional comment) for create_with_tasks action"),
+    cardId: z.string().optional().describe("The ID of the card to get details for (used by get_details, can be alias for id)"),
+    userId: z.string().optional().describe("The ID of the user (used for assign_member)"),
+    projectId: z.string().optional().describe("The ID of the project (if moving between projects)"),
+    comment: z.string().optional().describe("Optional comment to add to the card"),
+    memberIds: z.array(z.string()).optional().describe("Optional array of user IDs to assign to the card for create_with_tasks_action"),
   },
   async (args) => {
     let result;
+    const cardIdForOps = args.id || args.cardId;
 
     switch (args.action) {
       case "get_all":
-        if (!args.listId)
-          throw new Error("listId is required for get_all action");
+        if (!args.listId) throw new Error("listId is required for get_all action");
         result = await cards.getCards(args.listId);
         break;
 
@@ -297,40 +283,35 @@ server.tool(
         result = await cards.createCard({
           listId: args.listId,
           name: args.name,
-          description: args.description || "",
-          position: args.position || 0,
+          description: args.description,
+          position: args.position,
         });
         break;
 
       case "get_one":
-        if (!args.id) throw new Error("id is required for get_one action");
-        result = await cards.getCard(args.id);
+        if (!cardIdForOps) throw new Error("id (or cardId) is required for get_one action");
+        result = await cards.getCard(cardIdForOps);
         break;
 
       case "update":
-        if (!args.id) throw new Error("id is required for update action");
-        const cardUpdateOptions = {} as any; // Use type assertion to avoid TypeScript errors
-
-        if (args.name !== undefined) cardUpdateOptions.name = args.name;
-        if (args.description !== undefined)
-          cardUpdateOptions.description = args.description;
-        if (args.position !== undefined)
-          cardUpdateOptions.position = args.position;
-        if (args.dueDate !== undefined)
-          cardUpdateOptions.dueDate = args.dueDate;
-        if (args.isCompleted !== undefined)
-          cardUpdateOptions.isCompleted = args.isCompleted;
-
-        result = await cards.updateCard(args.id, cardUpdateOptions);
+        if (!cardIdForOps)
+          throw new Error("id (or cardId) is required for update action");
+        const updateData: { name?: string; description?: string; position?: number; dueDate?: string; isCompleted?: boolean } = {};
+        if (args.name !== undefined) updateData.name = args.name;
+        if (args.description !== undefined) updateData.description = args.description;
+        if (args.position !== undefined) updateData.position = args.position;
+        if (args.dueDate !== undefined) updateData.dueDate = args.dueDate;
+        if (args.isCompleted !== undefined) updateData.isCompleted = args.isCompleted;
+        result = await cards.updateCard(cardIdForOps, updateData);
         break;
 
       case "move":
-        if (!args.id || !args.listId || args.position === undefined)
+        if (!cardIdForOps || !args.listId)
           throw new Error(
-            "id, listId, and position are required for move action"
+            "id (or cardId) and listId are required for move action"
           );
         result = await cards.moveCard(
-          args.id,
+          cardIdForOps,
           args.listId,
           args.position,
           args.boardId,
@@ -339,41 +320,54 @@ server.tool(
         break;
 
       case "duplicate":
-        if (!args.id || args.position === undefined)
-          throw new Error("id and position are required for duplicate action");
-        result = await cards.duplicateCard(args.id, args.position);
+        if (!cardIdForOps)
+          throw new Error("id (or cardId) is required for duplicate action");
+        result = await cards.duplicateCard(cardIdForOps, args.position);
         break;
 
       case "delete":
-        if (!args.id) throw new Error("id is required for delete action");
-        result = await cards.deleteCard(args.id);
+        if (!cardIdForOps)
+          throw new Error("id (or cardId) is required for delete action");
+        result = await cards.deleteCard(cardIdForOps);
         break;
 
       case "create_with_tasks":
-        if (!args.listId || !args.name)
+        if (!args.listId || !args.name || !args.tasks)
           throw new Error(
-            "listId and name are required for create_with_tasks action"
+            "listId, name, and tasks are required for create_with_tasks action"
           );
         result = await createCardWithTasks({
           listId: args.listId,
           name: args.name,
           description: args.description,
-          tasks: args.tasks,
-          comment: args.comment,
           position: args.position,
+          dueDate: args.dueDate,
+          memberIds: args.memberIds,
+          comment: args.comment,
+          tasks: args.tasks,
         });
         break;
 
       case "get_details":
-        if (!args.cardId)
-          throw new Error("cardId is required for get_details action");
-        result = await getCardDetails({
-          cardId: args.cardId,
+        if (!args.cardId) throw new Error("cardId is required for get_details action");
+        result = await getCardDetails({ cardId: args.cardId });
+        break;
+
+      case "assign_member":
+        if (!cardIdForOps || !args.userId) {
+          throw new Error(
+            "id (or cardId) and userId are required for assign_member action"
+          );
+        }
+        result = await cards.assignMemberToCard({
+          cardId: cardIdForOps,
+          userId: args.userId,
         });
         break;
 
       default:
-        throw new Error(`Unknown action: ${args.action}`);
+        const _exhaustiveCheck: never = args.action;
+        throw new Error(`Unknown card action: ${args.action}`);
     }
 
     return {

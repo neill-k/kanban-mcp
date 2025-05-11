@@ -144,3 +144,12 @@ export type PlankaProjectMembership = z.infer<
   typeof PlankaProjectMembershipSchema
 >;
 export type PlankaCardLabel = z.infer<typeof PlankaCardLabelSchema>;
+
+// Schema for assigning a member to a card
+export const AssignMemberToCardOptionsSchema = z.object({
+  cardId: z.string().describe("The ID of the card"),
+  userId: z.string().describe("The ID of the user to assign"),
+});
+export type AssignMemberToCardOptions = z.infer<
+  typeof AssignMemberToCardOptionsSchema
+>;
